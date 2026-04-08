@@ -2,8 +2,10 @@
 
 ### Intelligent Security Monitoring & Detection Engine
 <p align="center">
-  <img src="threatlens.png" />
+  <img src="threatlens.png" width="700"/>
 </p>
+
+
 ---
 
 ## 🚀 Overview
