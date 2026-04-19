@@ -1,5 +1,4 @@
-# 🔐 ThreatLens
-### Intelligent Security Monitoring & Detection Engine
+# 🔐 ThreatLens           - An Intelligent Security Monitoring & Detection Engine
 
 <p align="center">
   <img src="threatlens.png" width="700" height="700"/>
