@@ -9,6 +9,9 @@ def detect_anomalies(logs):
         ip_counts[ip] = ip_counts.get(ip, 0) + 1
 
     ips = list(ip_counts.keys())
+    if len(ips) < 2:
+        return []
+
     values = np.array(list(ip_counts.values())).reshape(-1, 1)
 
     model = IsolationForest(contamination=0.2)

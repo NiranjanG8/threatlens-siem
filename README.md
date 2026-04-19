@@ -106,6 +106,13 @@ pip install -r requirements.txt
 python src/main.py
 ```
 
+ThreatLens now loads sources from `data/log_sources.json`, so you can combine:
+
+* file-based logs
+* Windows Event Logs (`Security`, `Application`, `System`)
+
+Edit that config file to enable or disable sources and tune `max_events`.
+
 ---
 
 ### 4️⃣ Run API
@@ -113,6 +120,12 @@ python src/main.py
 ```
 python src/api.py
 ```
+
+Useful endpoints:
+
+* `/health` → service status
+* `/analyze` → generated alerts
+* `/events` → normalized ingested events
 
 ---
 

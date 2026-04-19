@@ -1,11 +1,11 @@
-from parser import parse_logs
+from parser import collect_logs
 from normalizer import normalize
 from rules import detect_bruteforce, detect_suspicious_activity
 from anomaly_detector import detect_anomalies
 from alert_manager import print_alerts, save_alerts
 
 def run():
-    raw = parse_logs("data/sample_logs.log")
+    raw = collect_logs()
     norm = normalize(raw)
 
     alerts = []
