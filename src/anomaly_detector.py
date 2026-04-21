@@ -5,6 +5,8 @@ def detect_anomalies(logs):
     ip_counts = {}
 
     for log in logs:
+        if not log.get("ip"):
+            continue
         ip = log["ip"]
         ip_counts[ip] = ip_counts.get(ip, 0) + 1
 

@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from pathlib import Path
 
@@ -80,7 +81,7 @@ def _collect_windows_events(source):
     max_events = int(source.get("max_events", 100))
     powershell = (
         "Get-WinEvent -LogName '{log_name}' -MaxEvents {max_events} | "
-        "Select-Object TimeCreated, Id, ProviderName, LevelDisplayName, Message | "
+        "Select-Object TimeCreated, Id, ProviderName, LevelDisplayName, MachineName, Message | "
         "ConvertTo-Json -Depth 3"
     ).format(log_name=log_name, max_events=max_events)
 
@@ -122,6 +123,7 @@ def _collect_windows_events(source):
                 "event_id": event.get("Id"),
                 "provider": event.get("ProviderName"),
                 "level": event.get("LevelDisplayName"),
+                "host": event.get("MachineName") or os.environ.get("COMPUTERNAME"),
                 "raw": (event.get("Message") or "").strip(),
             }
         )

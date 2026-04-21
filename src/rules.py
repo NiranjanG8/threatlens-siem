@@ -4,7 +4,7 @@ def detect_bruteforce(logs):
     counts = defaultdict(int)
 
     for log in logs:
-        if log["event"] == "failed_login":
+        if log["event"] == "failed_login" and log.get("ip"):
             counts[log["ip"]] += 1
 
     return [
@@ -22,6 +22,8 @@ def detect_suspicious_activity(logs):
     counts = defaultdict(int)
 
     for log in logs:
+        if not log.get("ip"):
+            continue
         counts[log["ip"]] += 1
 
     return [
