@@ -134,6 +134,15 @@ Useful endpoints:
 streamlit run dashboard/app.py
 ```
 
+### 6️⃣ Start API + Dashboard Together
+
+```
+powershell -ExecutionPolicy Bypass -File .\start-threatlens.ps1
+```
+
+This starts both services in the background, writes logs to `logs/`, and prints the local API and dashboard URLs.
+It runs the Streamlit dashboard in headless mode, so your browser will not be opened automatically.
+
 ---
 
 ## 🐳 Run with Docker

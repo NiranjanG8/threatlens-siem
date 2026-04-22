@@ -14,6 +14,44 @@ API_BASE_URL = "http://127.0.0.1:5000"
 CONFIG_PATH = Path(__file__).resolve().parents[1] / "data" / "log_sources.json"
 WINDOWS_DATE_PATTERN = re.compile(r"/Date\((\d+)\)/")
 LOCAL_TIMEZONE = ZoneInfo("Asia/Kolkata")
+EVENT_COLOR_MAP = {
+    "failed_login": "#ef4444",
+    "success_login": "#22c55e",
+    "access_denied": "#f97316",
+    "defender_event": "#06b6d4",
+    "service_event": "#8b5cf6",
+    "powershell_event": "#eab308",
+    "system_error": "#dc2626",
+    "system_warning": "#f59e0b",
+    "system_event": "#64748b",
+    "Other": "#94a3b8",
+    "Unknown": "#94a3b8",
+}
+EVENT_BADGE_MAP = {
+    "failed_login": "🔴",
+    "success_login": "🟢",
+    "access_denied": "🟠",
+    "defender_event": "🔵",
+    "service_event": "🟣",
+    "powershell_event": "🟡",
+    "system_error": "🔺",
+    "system_warning": "🟨",
+    "system_event": "⚪",
+    "Unknown": "⚫",
+}
+EVENT_LABEL_MAP = {
+    "failed_login": "Failed Login",
+    "success_login": "Success Login",
+    "access_denied": "Access Denied",
+    "defender_event": "Defender Event",
+    "service_event": "Service Event",
+    "powershell_event": "PowerShell Event",
+    "system_error": "System Error",
+    "system_warning": "System Warning",
+    "system_event": "System Event",
+    "Other": "Other",
+    "Unknown": "Unknown",
+}
 
 
 def fetch_json(endpoint):
@@ -97,9 +135,198 @@ def apply_time_filter(events_df, preset, start_date, end_date):
     return filtered_df
 
 
+def build_count_chart_data(series, label):
+    counts = series.fillna("Unknown").astype(str).value_counts().reset_index()
+    counts.columns = [label, "count"]
+    return counts
+
+
+def get_event_color_scale():
+    domain = list(EVENT_COLOR_MAP.keys())
+    return {"domain": domain, "range": [EVENT_COLOR_MAP[key] for key in domain]}
+
+
+def format_event_label(event_name):
+    normalized = str(event_name or "Unknown")
+    return EVENT_LABEL_MAP.get(normalized, normalized.replace("_", " ").title())
+
+
+def build_event_badge(event_name):
+    normalized = str(event_name or "Unknown")
+    badge = EVENT_BADGE_MAP.get(normalized, EVENT_BADGE_MAP["Unknown"])
+    return f"{badge} {format_event_label(normalized)}"
+
+
+def build_event_chart_data(series, top_n=6):
+    event_counts = build_count_chart_data(series, "event")
+    if event_counts.empty:
+        return event_counts
+
+    if len(event_counts) > top_n:
+        top_events = event_counts.head(top_n).copy()
+        other_count = event_counts.iloc[top_n:]["count"].sum()
+        if other_count > 0:
+            top_events = pd.concat(
+                [top_events, pd.DataFrame([{"event": "Other", "count": other_count}])],
+                ignore_index=True,
+            )
+        event_counts = top_events
+
+    event_counts["event_label"] = event_counts["event"].apply(format_event_label)
+    return event_counts
+
+
+def render_donut_chart(data, category_field, title):
+    if data.empty:
+        st.info(f"No {title.lower()} available.")
+        return
+
+    display_field = category_field
+    color_encoding = {
+        "field": category_field,
+        "type": "nominal",
+        "legend": {"title": title, "orient": "bottom", "direction": "horizontal"},
+    }
+    if category_field == "event":
+        color_encoding["scale"] = get_event_color_scale()
+        color_encoding["field"] = "event_label"
+        display_field = "event_label"
+
+    chart_spec = {
+        "height": 320,
+        "mark": {"type": "arc", "innerRadius": 82, "outerRadius": 128},
+        "encoding": {
+            "theta": {"field": "count", "type": "quantitative"},
+            "color": color_encoding,
+            "tooltip": [
+                {"field": display_field, "type": "nominal", "title": title},
+                {"field": "count", "type": "quantitative", "title": "Count"},
+            ],
+        },
+    }
+    st.vega_lite_chart(data, chart_spec, use_container_width=True)
+
+
+def render_event_type_chart(data):
+    if data.empty:
+        st.info("No event types available yet.")
+        return
+
+    chart_spec = {
+        "height": 320,
+        "mark": {"type": "bar", "cornerRadiusEnd": 6},
+        "encoding": {
+            "y": {
+                "field": "event_label",
+                "type": "nominal",
+                "sort": "-x",
+                "title": None,
+                "axis": {"labelLimit": 180},
+            },
+            "x": {"field": "count", "type": "quantitative", "title": "Events"},
+            "color": {
+                "field": "event",
+                "type": "nominal",
+                "scale": get_event_color_scale(),
+                "legend": None,
+            },
+            "tooltip": [
+                {"field": "event_label", "type": "nominal", "title": "Event Type"},
+                {"field": "count", "type": "quantitative", "title": "Count"},
+            ],
+        },
+    }
+    st.vega_lite_chart(data, chart_spec, use_container_width=True)
+
+
+def render_timeline_chart(events_df):
+    timeline_df = events_df.dropna(subset=["parsed_timestamp"]).copy()
+    if timeline_df.empty:
+        st.info("No timestamped events available for a timeline yet.")
+        return
+
+    span = timeline_df["parsed_timestamp"].max() - timeline_df["parsed_timestamp"].min()
+    bucket = "h" if pd.isna(span) or span <= timedelta(days=3) else "D"
+    bucket_label = "hour" if bucket == "h" else "day"
+
+    timeline_df["time_bucket"] = timeline_df["parsed_timestamp"].dt.floor(bucket)
+    timeline_counts = (
+        timeline_df.groupby("time_bucket")
+        .size()
+        .rename("events")
+        .reset_index()
+        .sort_values("time_bucket")
+        .set_index("time_bucket")
+    )
+
+    st.line_chart(timeline_counts, height=280, use_container_width=True)
+    st.caption(f"Event volume grouped by {bucket_label}.")
+
+
+def render_top_ip_chart(events_df):
+    if "ip" not in events_df.columns:
+        st.info("No IP data available yet.")
+        return
+
+    ip_counts = build_count_chart_data(events_df["ip"], "ip")
+    ip_counts = ip_counts[ip_counts["ip"] != "None"].head(8).set_index("ip")
+    if ip_counts.empty:
+        st.info("No IP-based activity to visualize yet.")
+        return
+
+    st.bar_chart(ip_counts, height=280, use_container_width=True)
+
+
+def render_source_heatmap(events_df):
+    if "source" not in events_df.columns or "event" not in events_df.columns:
+        st.info("Not enough event metadata for a source heatmap yet.")
+        return
+
+    heatmap_df = (
+        events_df.assign(
+            source=events_df["source"].fillna("Unknown").astype(str),
+            event=events_df["event"].fillna("Unknown").astype(str),
+        )
+        .groupby(["source", "event"])
+        .size()
+        .rename("count")
+        .reset_index()
+        .sort_values("count", ascending=False)
+        .head(25)
+    )
+
+    if heatmap_df.empty:
+        st.info("No source and event combinations to visualize yet.")
+        return
+
+    chart_spec = {
+        "mark": "rect",
+        "encoding": {
+            "x": {"field": "event", "type": "nominal", "title": "Event Type"},
+            "y": {"field": "source", "type": "nominal", "title": "Source"},
+            "color": {
+                "field": "count",
+                "type": "quantitative",
+                "title": "Events",
+                "scale": {"scheme": "teals"},
+            },
+            "tooltip": [
+                {"field": "source", "type": "nominal", "title": "Source"},
+                {"field": "event", "type": "nominal", "title": "Event"},
+                {"field": "count", "type": "quantitative", "title": "Count"},
+            ],
+        },
+    }
+    st.vega_lite_chart(heatmap_df, chart_spec, use_container_width=True)
+
+
 st.set_page_config(page_title="ThreatLens Dashboard", layout="wide")
 st.title("ThreatLens Dashboard")
 st.caption("Live view of ingested events and detections from configured file and Windows log sources.")
+
+config = load_source_config()
+enabled_files = [source["source"] for source in config["file_sources"] if source.get("enabled", True)]
+enabled_windows = [source["name"] for source in config["windows_event_sources"] if source.get("enabled", True)]
 
 with st.sidebar:
     st.header("Live Mode")
@@ -128,10 +355,6 @@ with filter_col2:
 with filter_col3:
     end_date = st.date_input("End date", value=None, disabled=time_preset != "Custom range")
 
-config = load_source_config()
-
-enabled_files = [source["source"] for source in config["file_sources"] if source.get("enabled", True)]
-enabled_windows = [source["name"] for source in config["windows_event_sources"] if source.get("enabled", True)]
 source_col1, source_col2 = st.columns(2)
 with source_col1:
     st.subheader("File Sources")
@@ -143,7 +366,7 @@ with source_col2:
 
 header_col1, header_col2 = st.columns([6, 1])
 with header_col2:
-    manual_refresh = st.button("Refresh now", use_container_width=True, key="main_refresh")
+    manual_refresh = st.button("Refresh now", width="stretch", key="main_refresh")
 
 
 def render_live_data():
@@ -186,8 +409,8 @@ def render_live_data():
         events_df["display_event_id"] = events_df["event_id"].apply(
             lambda value: str(int(value)) if pd.notna(value) else "N/A"
         )
+        events_df["event_badge"] = events_df["event"].apply(build_event_badge)
         events_df["message_preview"] = events_df.apply(build_event_overview, axis=1)
-        events_df = events_df.drop(columns=["parsed_timestamp"])
 
     alerts_col, events_col = st.columns(2)
 
@@ -196,19 +419,19 @@ def render_live_data():
         if alerts_df.empty:
             st.info("No alerts returned by the API.")
         else:
-            st.dataframe(alerts_df, use_container_width=True)
-            st.bar_chart(alerts_df["severity"].value_counts())
+            st.dataframe(alerts_df, width="stretch", hide_index=True)
 
     with events_col:
         st.subheader("Normalized Events")
         if events_df.empty:
             st.info("No normalized events available yet.")
         else:
+            table_df = events_df.drop(columns=["parsed_timestamp"], errors="ignore")
             visible_columns = [
                 column
                 for column in [
                     "display_timestamp",
-                    "event",
+                    "event_badge",
                     "display_event_id",
                     "source",
                     "host",
@@ -220,15 +443,15 @@ def render_live_data():
                 if column in events_df.columns
             ]
             event_selection = st.dataframe(
-                events_df[visible_columns],
-                use_container_width=True,
+                table_df[visible_columns],
+                width="stretch",
                 key="events_table",
                 on_select="rerun",
                 selection_mode="single-row",
                 hide_index=True,
                 column_config={
                     "display_timestamp": "Timestamp",
-                    "event": "Event",
+                    "event_badge": "Event",
                     "display_event_id": "Event ID",
                     "source": "Source",
                     "host": "Host",
@@ -241,7 +464,7 @@ def render_live_data():
 
             selected_rows = event_selection.selection.rows
             if selected_rows:
-                selected_event = events_df.iloc[selected_rows[0]].to_dict()
+                selected_event = table_df.iloc[selected_rows[0]].to_dict()
                 st.markdown("### Event Details")
 
                 detail_col1, detail_col2 = st.columns(2)
@@ -268,9 +491,40 @@ def render_live_data():
             else:
                 st.caption("Click an event row to inspect full details.")
 
-    if not events_df.empty and "source" in events_df.columns:
-        st.subheader("Events by Source")
-        st.bar_chart(events_df["source"].value_counts())
+    analytics_col1, analytics_col2 = st.columns(2)
+    with analytics_col1:
+        st.subheader("Alert Severity Mix")
+        render_donut_chart(
+            build_count_chart_data(alerts_df.get("severity", pd.Series(dtype=str)), "severity"),
+            "severity",
+            "Severity",
+        )
+
+    with analytics_col2:
+        st.subheader("Event Type Mix")
+        if events_df.empty:
+            st.info("No event types available yet.")
+        else:
+            render_event_type_chart(build_event_chart_data(events_df["event"]))
+
+    st.subheader("Activity Timeline")
+    render_timeline_chart(events_df)
+
+    intel_col1, intel_col2 = st.columns(2)
+    with intel_col1:
+        st.subheader("Top Active IPs")
+        render_top_ip_chart(events_df)
+
+    with intel_col2:
+        st.subheader("Event Volume by Source")
+        if not events_df.empty and "source" in events_df.columns:
+            source_counts = build_count_chart_data(events_df["source"], "source").set_index("source")
+            st.bar_chart(source_counts, height=280, use_container_width=True)
+        else:
+            st.info("No source activity available yet.")
+
+    st.subheader("Source vs Event Heatmap")
+    render_source_heatmap(events_df)
 
 refresh_interval = f"{refresh_seconds}s" if auto_refresh else None
 
