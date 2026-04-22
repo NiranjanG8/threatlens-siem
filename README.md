@@ -49,7 +49,9 @@ Logs → Parser → Normalizer → Detection Engine → ML Model → Alerts → 
 
 ## 📸 Dashboard Preview
 
-*Add your screenshot here (screenshots/dashboard.png)*
+<p align="center">
+  <img src="dashboard.png" width="700"/>
+</p>
 
 ---
 
