@@ -1,4 +1,6 @@
 import json
+import urllib.error
+import urllib.request
 from pathlib import Path
 from datetime import datetime, timedelta
 import re
@@ -59,6 +61,17 @@ def fetch_json(endpoint):
         return json.loads(response.read().decode("utf-8"))
 
 
+def send_json_request(endpoint, method, payload):
+    request = urllib.request.Request(
+        f"{API_BASE_URL}{endpoint}",
+        data=json.dumps(payload).encode("utf-8"),
+        headers={"Content-Type": "application/json"},
+        method=method,
+    )
+    with urlopen(request, timeout=5) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+
 def load_source_config():
     with CONFIG_PATH.open() as config_file:
         return json.load(config_file)
@@ -89,6 +102,20 @@ def build_event_overview(event):
     if len(message) > 90:
         message = f"{message[:87]}..."
     return message or "No message"
+
+
+def format_status_label(status):
+    return str(status or "NEW").replace("_", " ").title()
+
+
+def format_notes_preview(notes):
+    if not notes:
+        return "No notes"
+    latest = notes[-1]
+    note_text = latest.get("note", "").strip()
+    if len(note_text) > 52:
+        note_text = f"{note_text[:49]}..."
+    return note_text or "No notes"
 
 
 def get_date_range_from_preset(preset, now_local):
@@ -371,7 +398,8 @@ with header_col2:
 
 def render_live_data():
     try:
-        alerts = fetch_json("/analyze")
+        fetch_json("/analyze")
+        alerts = fetch_json("/alerts")
         events = fetch_json("/events")
         api_online = True
     except URLError:
@@ -398,6 +426,10 @@ def render_live_data():
         alerts_df = alerts_df.sort_values("_sort_timestamp", ascending=False, na_position="last").drop(
             columns=["_sort_timestamp"]
         )
+    if not alerts_df.empty:
+        alerts_df["status_label"] = alerts_df["status"].apply(format_status_label)
+        alerts_df["notes_preview"] = alerts_df["notes"].apply(format_notes_preview)
+        alerts_df["assigned_display"] = alerts_df["assigned_to"].replace("", "Unassigned")
     if not events_df.empty:
         if "timestamp" in events_df.columns:
             events_df["parsed_timestamp"] = events_df["timestamp"].apply(parse_event_timestamp)
@@ -419,7 +451,113 @@ def render_live_data():
         if alerts_df.empty:
             st.info("No alerts returned by the API.")
         else:
-            st.dataframe(alerts_df, width="stretch", hide_index=True)
+            alert_columns = [
+                column
+                for column in [
+                    "type",
+                    "severity",
+                    "status_label",
+                    "assigned_display",
+                    "ip",
+                    "occurrence_count",
+                    "last_seen_at",
+                    "notes_preview",
+                ]
+                if column in alerts_df.columns
+            ]
+            alert_selection = st.dataframe(
+                alerts_df[alert_columns],
+                width="stretch",
+                hide_index=True,
+                key="alerts_table",
+                on_select="rerun",
+                selection_mode="single-row",
+                column_config={
+                    "type": "Type",
+                    "severity": "Severity",
+                    "status_label": "Status",
+                    "assigned_display": "Assigned To",
+                    "ip": "IP",
+                    "occurrence_count": "Count",
+                    "last_seen_at": "Last Seen",
+                    "notes_preview": "Latest Note",
+                },
+            )
+
+            selected_alert_rows = alert_selection.selection.rows
+            if selected_alert_rows:
+                selected_alert = alerts_df.iloc[selected_alert_rows[0]].to_dict()
+                st.markdown("### Alert Triage")
+
+                triage_col1, triage_col2 = st.columns(2)
+                with triage_col1:
+                    new_status = st.selectbox(
+                        "Status",
+                        ["NEW", "INVESTIGATING", "TRUE_POSITIVE", "FALSE_POSITIVE", "RESOLVED"],
+                        index=["NEW", "INVESTIGATING", "TRUE_POSITIVE", "FALSE_POSITIVE", "RESOLVED"].index(
+                            selected_alert.get("status", "NEW")
+                        ),
+                        key=f"status_{selected_alert['alert_id']}",
+                    )
+                with triage_col2:
+                    assigned_to = st.text_input(
+                        "Assigned To",
+                        value=selected_alert.get("assigned_to", ""),
+                        key=f"assigned_{selected_alert['alert_id']}",
+                    )
+
+                update_clicked = st.button(
+                    "Update Alert",
+                    key=f"update_{selected_alert['alert_id']}",
+                    width="stretch",
+                )
+                if update_clicked:
+                    try:
+                        send_json_request(
+                            f"/alerts/{selected_alert['alert_id']}",
+                            "PATCH",
+                            {"status": new_status, "assigned_to": assigned_to},
+                        )
+                        st.success("Alert updated.")
+                        st.rerun()
+                    except urllib.error.URLError:
+                        st.error("Unable to update alert right now.")
+
+                note_text = st.text_area(
+                    "Add Investigation Note",
+                    key=f"note_{selected_alert['alert_id']}",
+                    height=100,
+                    placeholder="Document triage steps, findings, and next actions...",
+                )
+                add_note_clicked = st.button(
+                    "Add Note",
+                    key=f"add_note_{selected_alert['alert_id']}",
+                    width="stretch",
+                )
+                if add_note_clicked:
+                    try:
+                        send_json_request(
+                            f"/alerts/{selected_alert['alert_id']}/notes",
+                            "POST",
+                            {"note": note_text, "author": assigned_to or "Analyst"},
+                        )
+                        st.success("Note added.")
+                        st.rerun()
+                    except urllib.error.URLError:
+                        st.error("Unable to add note right now.")
+
+                st.caption(
+                    f"Created: {selected_alert.get('created_at', 'N/A')} | Last seen: {selected_alert.get('last_seen_at', 'N/A')}"
+                )
+                if selected_alert.get("notes"):
+                    with st.expander("Investigation Notes", expanded=True):
+                        for note in reversed(selected_alert["notes"]):
+                            st.markdown(
+                                f"**{note.get('author', 'Analyst')}** · {note.get('created_at', '')}"
+                            )
+                            st.write(note.get("note", ""))
+                else:
+                    st.caption("No investigation notes yet.")
 
     with events_col:
         st.subheader("Normalized Events")

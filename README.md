@@ -185,10 +185,20 @@ This project is ideal for roles like:
 
 ## 📈 Future Improvements
 
-* Real-time alert notifications (Slack/Email)
-* Cloud log integration (AWS/GCP)
-* Advanced ML models
-* Role-based dashboard
+ThreatLens is just getting started, and there are several areas planned for expansion to make it more reflective of real-world SOC and SIEM operations:
+
+* Add support for more log sources such as Linux authentication logs, syslog, Apache/Nginx logs, and `journalctl`
+* Expand Windows Event Log detection coverage for important Event IDs such as `4624`, `4625`, `4688`, `4698`, and `7045`
+* Introduce new detections for brute force activity, lateral movement, persistence, log clearing, and possible data exfiltration
+* Build SIEM-style alert triage workflows with status tracking, assignment, notes, and investigation history
+* Map detections to **MITRE ATT&CK** tactics and techniques for stronger security context
+* Preserve raw log evidence alongside normalized events for better incident investigation
+* Add event correlation across multiple sources, users, hosts, and timestamps
+* Improve the dashboard with deeper drilldowns, investigation views, and alert status widgets
+* Add threat intelligence enrichment for suspicious IPs and domains
+* Introduce stronger anomaly detection models beyond simple IP activity analysis
+* Store alerts and events in a database for better historical search and reporting
+* Add real-time notifications through Slack, email, or webhooks
 
 ---
 
